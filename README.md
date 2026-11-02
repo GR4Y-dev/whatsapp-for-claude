@@ -148,11 +148,18 @@ docker compose stop whatsapp && docker compose run --rm --no-deps gateway python
 
 ## Updating
 
-```bash
-cd /opt/whatsapp-for-claude && git pull && bash setup.sh
-```
+You don't need to log in to the server for updates:
 
-Your settings and the WhatsApp link are kept.
+- **Automatically:** the setup asks "Update automatically every night?". If you said yes, the
+  server checks GitHub around 04:00 (server time) and installs a new version only if its tests
+  passed. Turn it on or off later with `bash update.sh --install` / `bash update.sh --uninstall`.
+- **Right now, and texts with the result:** if
+  [Telegram for Claude](https://github.com/GR4Y-dev/telegram-for-claude)'s call assistant is on
+  the same server, send it `/update` (or ask Claude "update the server"). It updates this project
+  too and texts you what changed.
+
+By hand, on the server: `cd /opt/whatsapp-for-claude && bash update.sh`. Your settings and the
+WhatsApp link are always kept.
 
 ## Troubleshooting
 

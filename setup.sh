@@ -81,3 +81,8 @@ echo
 echo "2) Your connector address, ONLY for claude.ai > Settings > Connectors > Add custom connector:"
 echo
 echo "    https://$DOMAIN/$MCP_SECRET/mcp"
+if [ ! -f "/etc/systemd/system/$(basename "$(pwd)")-update.timer" ]; then
+  echo
+  read -rp "Update automatically every night (only versions whose tests passed)? (Y/n): " ok
+  if [ "$ok" != "n" ] && [ "$ok" != "N" ]; then bash update.sh --install; fi
+fi

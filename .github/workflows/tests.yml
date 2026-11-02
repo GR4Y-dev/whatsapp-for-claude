@@ -15,7 +15,9 @@ jobs:
       - name: Install requirements
         run: pip install -r gateway/requirements.txt
       - name: Check the setup script
-        run: bash -n setup.sh
+        run: bash -n setup.sh && bash -n update.sh
+      - name: Updater tests
+        run: bash tests/test_update.sh
       - name: Gateway tests
         run: python tests/test_gateway.py
       - name: Build the gateway image
