@@ -1,0 +1,8 @@
+# Secrets: never commit these
+.env
+*.env
+
+# Local files
+__pycache__/
+*.pyc
+*.zip

@@ -1,0 +1,63 @@
+name: whatsapp-connector
+
+# Logs are kept small so they never fill the disk.
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "5m"
+    max-file: "2"
+
+services:
+  # The WhatsApp server itself (github.com/sealjay/mcp-whatsapp), built from its v0.6.0 release.
+  # Only the gateway can reach it; it is never on the internet.
+  whatsapp:
+    build: https://github.com/sealjay/mcp-whatsapp.git#v0.6.0
+    image: whatsapp-mcp:v0.6.0
+    container_name: whatsapp-mcp
+    logging: *logging
+    restart: unless-stopped
+    command: ["serve", "-addr", "0.0.0.0:8765", "-allow-remote"]
+    environment:
+      WHATSAPP_MCP_TOKEN: ${WHATSAPP_TOKEN}
+    volumes:
+      - whatsapp-store:/home/app/store
+
+  # What Claude talks to: the secret address, attachments, voice messages, scheduling,
+  # the storage limit and the pairing page.
+  gateway:
+    build: ./gateway
+    container_name: whatsapp-gateway
+    logging: *logging
+    restart: unless-stopped
+    environment:
+      MCP_SECRET: ${MCP_SECRET}
+      WHATSAPP_TOKEN: ${WHATSAPP_TOKEN}
+      TIMEZONE: ${TIMEZONE:-UTC}
+      STORAGE_LIMIT_MB: ${STORAGE_LIMIT_MB:-1024}
+      HIDE_TOOLS: ${HIDE_TOOLS:-}
+      MAX_ATTACHMENT_MB: ${MAX_ATTACHMENT_MB:-20}
+      TRANSCRIBE_API_KEY: ${TRANSCRIBE_API_KEY:-}
+      TRANSCRIBE_URL: ${TRANSCRIBE_URL:-https://api.openai.com/v1/audio/transcriptions}
+      TRANSCRIBE_MODEL: ${TRANSCRIBE_MODEL:-gpt-4o-transcribe}
+    volumes:
+      - whatsapp-store:/home/app/store
+      - gateway-data:/data
+    depends_on:
+      - whatsapp
+
+  # Free Cloudflare Tunnel: gives the connector its https:// address (DOMAIN in .env)
+  # without opening any ports on the server.
+  tunnel:
+    image: cloudflare/cloudflared:latest
+    container_name: whatsapp-tunnel
+    logging: *logging
+    restart: unless-stopped
+    command: tunnel --no-autoupdate run
+    environment:
+      TUNNEL_TOKEN: ${TUNNEL_TOKEN}
+    depends_on:
+      - gateway
+
+volumes:
+  whatsapp-store:
+  gateway-data:
