@@ -139,7 +139,7 @@ gateway.prune_storage()
 check(count() == 2000, "messages kept when other data alone is over the limit")
 
 # ---------------------------------------------------------------- whole gateway, fake WhatsApp
-files_dir = WORK / "media"; files_dir.mkdir()
+files_dir = WORK / "store" / "media"; files_dir.mkdir()
 media_files = {"m-pdf": ("document", "invoice.pdf", pdf_bytes()),
                "m-img": ("image", "photo.jpg", image_bytes()),
                "m-voice": ("audio", "voice.ogg", b"OggS" + os.urandom(2000)),

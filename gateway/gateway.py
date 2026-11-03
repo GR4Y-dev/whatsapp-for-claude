@@ -20,6 +20,7 @@ import json
 import logging
 import os
 import re
+import zipfile
 import secrets
 import sqlite3
 import sys
@@ -74,6 +75,8 @@ if not UPSTREAM_TOKEN:
 
 # ---------------------------------------------------------------- the WhatsApp server
 async def upstream_call(name: str, arguments: dict) -> CallToolResult:
+    if name in HIDE_TOOLS:
+        raise ValueError(f"{name} is switched off in this connector.")
     async with httpx.AsyncClient(headers={"Authorization": f"Bearer {UPSTREAM_TOKEN}"},
                                  timeout=httpx.Timeout(120, connect=10)) as http:
         async with streamable_http_client(f"{UPSTREAM}/mcp", http_client=http) as (r, w, _):
@@ -137,6 +140,8 @@ def _cut(text: str) -> str:
 def _to_image(data: bytes) -> Image:
     """Shrink a picture so Claude can look at it, and send it as a JPEG."""
     with PILImage.open(io.BytesIO(data)) as im:
+        if im.width * im.height > 25_000_000:
+            raise ValueError("That image is too large to decode safely (25 megapixels max).")
         im.seek(0)  # first frame of GIFs and animated stickers
         im = ImageOps.exif_transpose(im)
         im.thumbnail((IMAGE_SIDE, IMAGE_SIDE))
@@ -159,7 +164,7 @@ def _read_pdf(data: bytes, start_page: int) -> list:
     if start > pages:
         raise ValueError(f"This PDF has only {pages} pages.")
     parts, total, last, letters = [], 0, start - 1, 0
-    for i in range(start - 1, pages):
+    for i in range(start - 1, min(pages, start + 49)):
         text = doc[i].get_text().strip()
         chunk = f"--- page {i + 1} ---\n{text}"
         if parts and total + len(chunk) > MAX_TEXT_CHARS:
@@ -175,17 +180,29 @@ def _read_pdf(data: bytes, start_page: int) -> list:
         out[0] = (f"PDF with {pages} pages. It has almost no text inside (probably scanned), "
                   f"so here are pages {start}-{last} as pictures.")
         for i in range(start - 1, last):
-            out.append(_to_image(doc[i].get_pixmap(dpi=110).tobytes("png")))
+            page = doc[i]
+            scale = min(110 / 72, IMAGE_SIDE / max(1, page.rect.width, page.rect.height))
+            out.append(_to_image(page.get_pixmap(matrix=pymupdf.Matrix(scale, scale)).tobytes("png")))
     else:
         out.append("\n\n".join(parts))
     if last < pages:
         out.append(f"More pages left: call read_attachment again with start_page={last + 1}.")
+    doc.close()
     return out
+
+
+def _check_office_size(data: bytes) -> None:
+    with zipfile.ZipFile(io.BytesIO(data)) as archive:
+        items = archive.infolist()
+        if (len(items) > 10000 or sum(x.file_size for x in items) > 64 * 1024 * 1024
+                or any(x.file_size > 32 * 1024 * 1024 for x in items)):
+            raise ValueError("That document expands beyond the safe reading limit.")
 
 
 def _read_docx(data: bytes) -> list:
     import docx
 
+    _check_office_size(data)
     d = docx.Document(io.BytesIO(data))
     lines = [p.text for p in d.paragraphs if p.text.strip()]
     for n, table in enumerate(d.tables, 1):
@@ -198,16 +215,24 @@ def _read_docx(data: bytes) -> list:
 def _read_xlsx(data: bytes) -> list:
     import openpyxl
 
+    _check_office_size(data)
     wb = openpyxl.load_workbook(io.BytesIO(data), read_only=True, data_only=True)
     lines = []
-    for ws in wb.worksheets:
+    for ws in wb.worksheets[:20]:
         lines.append(f"=== sheet: {ws.title} ===")
-        for row in ws.iter_rows(values_only=True):
+        total = sum(map(len, lines))
+        for row in ws.iter_rows(max_row=min(ws.max_row or 10000, 10000),
+                                max_col=min(ws.max_column or 100, 100), values_only=True):
             if any(v is not None for v in row):
-                lines.append(",".join("" if v is None else str(v) for v in row))
+                line = ",".join("" if v is None else str(v) for v in row)
+                lines.append(line)
+                total += len(line)
+                if total > MAX_TEXT_CHARS:
+                    break
         if sum(map(len, lines)) > MAX_TEXT_CHARS:
             break
-    return [_cut("\n".join(lines))]
+    wb.close()
+    return [_cut("\n".join(lines)) + "\n[Limited to 20 sheets, 10,000 rows and 100 columns per sheet.]"]
 
 
 def _as_text(data: bytes) -> str | None:
@@ -328,6 +353,8 @@ RECIPIENT = re.compile(r"^\+?\d{6,15}$|^[\d-]+@(s\.whatsapp\.net|g\.us|lid)$")
 
 
 async def _send_due() -> None:
+    if "send_message" in HIDE_TOOLS:
+        return  # Disabling sending also pauses queued messages; the usual grace limit still applies.
     async with _schedule_lock:
         jobs = _load_jobs()
         now = datetime.now(TZ)
@@ -505,7 +532,7 @@ class Gateway(FastMCP):
     """FastMCP with the WhatsApp server's tools added next to its own."""
 
     async def list_tools(self) -> list[Tool]:
-        own = await super().list_tools()
+        own = [t for t in await super().list_tools() if t.name not in HIDE_TOOLS]
         names = {t.name for t in own}
         try:
             theirs = [t for t in await upstream_tools()
@@ -516,10 +543,10 @@ class Gateway(FastMCP):
         return theirs + own
 
     async def call_tool(self, name: str, arguments: dict):
-        if name in self._tool_manager._tools:
-            return await super().call_tool(name, arguments)
         if name in HIDE_TOOLS:
             raise ValueError(f"{name} is switched off in this connector.")
+        if name in self._tool_manager._tools:
+            return await super().call_tool(name, arguments)
         try:
             result = await upstream_call(name, arguments)
         except Exception as e:
@@ -575,7 +602,12 @@ async def read_attachment(chat_jid: str, message_id: str, start_page: int = 1,
     info = _first_json(res)
     if res.isError or not info.get("Success"):
         raise ValueError(info.get("Message") or "WhatsApp couldn't download that file.")
-    path = Path(info["Path"])
+    path = Path(info["Path"]).resolve()
+    if not path.is_relative_to(STORE_DIR.resolve()) or not path.is_file():
+        raise ValueError("The attachment is outside the WhatsApp media store.")
+    # Never expose login/message databases, even if the upstream returns their path.
+    if path.suffix.lower() in {".db", ".sqlite", ".sqlite3"} or path.name.endswith(("-wal", "-shm", "-journal")):
+        raise ValueError("Database files cannot be opened as attachments.")
     kind = info.get("MediaType") or ""
     name = info.get("Filename") or path.name
     size = path.stat().st_size
@@ -609,6 +641,8 @@ async def schedule_message(recipient: str, text: str, send_at: str) -> dict:
     code first) or the chat_jid from list_chats / search_contacts. send_at is the user's
     local time, like 2026-11-03 08:00. Works while the user's phone is off; the server
     sends it. Show the user the recipient, text and time and get a yes first."""
+    if "send_message" in HIDE_TOOLS:
+        raise ValueError("send_message is switched off in this connector.")
     recipient = recipient.strip()
     if not RECIPIENT.match(recipient):
         raise ValueError("recipient must be a phone number in digits (country code first) or "
@@ -683,6 +717,9 @@ async def pair_page(request: Request) -> Response:
     if r.headers.get("content-type", "").startswith("text/html"):
         body = body.replace(b'"/pair', f'"{PAIR}'.encode())
     headers["referrer-policy"] = "no-referrer"
+    headers["cache-control"] = "no-store"
+    headers["x-content-type-options"] = "nosniff"
+    headers["x-frame-options"] = "DENY"
     return Response(body, status_code=r.status_code, headers=headers)
 
 

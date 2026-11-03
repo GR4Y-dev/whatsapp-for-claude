@@ -174,6 +174,12 @@ WhatsApp link are always kept.
 
 ## Security and privacy
 
+The [security review](SECURITY-REVIEW.md) explains the fixes, checks and remaining limits.
+`HIDE_TOOLS` applies to gateway tools as well as upstream tools and internal calls. Disabling
+`send_message` also prevents new scheduled messages and pauses queued sends. Re-enabling it
+uses the existing one-hour grace period, so excessively late messages are not delivered.
+Attachment reading accepts files only inside the media store and refuses database files.
+
 - **Cut Claude off any time:** WhatsApp → Settings → Linked devices → tap the device → Log out,
   or remove the connector in claude.ai.
 - Both addresses contain a long random secret; every other address returns "Not Found". If one
@@ -193,6 +199,7 @@ WhatsApp link are always kept.
 ```bash
 pip install -r gateway/requirements.txt
 python tests/test_gateway.py    # file reading, storage limit, and the gateway against a fake WhatsApp
+python -m unittest discover -s tests -p test_security.py
 ```
 
 ## Credits

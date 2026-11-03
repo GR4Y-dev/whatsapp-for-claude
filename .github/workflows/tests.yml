@@ -4,6 +4,9 @@ on:
   push:
   pull_request:
 
+permissions:
+  contents: read
+
 jobs:
   tests:
     runs-on: ubuntu-latest
@@ -14,11 +17,17 @@ jobs:
           python-version: "3.12"
       - name: Install requirements
         run: pip install -r gateway/requirements.txt
+      - name: Check dependencies for known vulnerabilities
+        run: |
+          pip install pip-audit==2.10.1
+          pip-audit -r gateway/requirements.txt
       - name: Check the setup script
         run: bash -n setup.sh && bash -n update.sh
       - name: Updater tests
         run: bash tests/test_update.sh
       - name: Gateway tests
         run: python tests/test_gateway.py
+      - name: Security regression tests
+        run: python -m unittest discover -s tests -p test_security.py -v
       - name: Build the gateway image
         run: docker build -q gateway
