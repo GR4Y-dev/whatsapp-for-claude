@@ -13,7 +13,7 @@ RUN go mod download \
 FROM debian:bookworm-slim AS audio
 RUN sed -i 's/Types: deb$/Types: deb deb-src/' /etc/apt/sources.list.d/debian.sources \
     && apt-get update \
-    && apt-get install -y --no-install-recommends build-essential dpkg-dev nasm libopus-dev
+    && apt-get install -y --no-install-recommends build-essential dpkg-dev pkg-config nasm libopus-dev
 WORKDIR /src
 RUN apt-get source ffmpeg \
     && cd ffmpeg-* \
