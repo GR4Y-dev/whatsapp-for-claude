@@ -40,9 +40,15 @@ Linux resource measurements must be collected from CI/server; estimates are not 
 | Bridge idle RSS | about 32 MB | same Go source; remeasure on server |
 | Telegram in-call peak / latency | separate Telegram service | unaffected by this PR |
 | Voice models / caller venv | separate Telegram service | unaffected by this PR |
-| ffmpeg package footprint | about 484 MB incl. graphics/LLVM | native audio build; CI reports whole image bytes |
-| Bridge/gateway image sizes | server measurement needed | `docker image inspect --format '{{.Size}}' IMAGE` |
+| ffmpeg package footprint | about 484 MB incl. graphics/LLVM | included in the 122,805,755-byte whole bridge image |
+| Bridge image | original whole-image size not supplied | 122,805,755 bytes (117.1 MiB), GitHub Linux CI |
+| Gateway image | server measurement needed | unchanged image recipe; server comparison pending |
 | Unchanged update builds | bridge + gateway every time | zero; source/image regression tests |
+
+CI built the bridge and successfully converted WAV, MP3, AAC/M4A, FLAC and Ogg to Opus.
+The full new image is smaller than the reported old ffmpeg package set alone, but a
+like-for-like original-image measurement was not available. The server must still verify
+real WhatsApp voice-note delivery.
 
 Check `docker system df`, image byte sizes, `ps` RSS and real WhatsApp voice-message
 conversion before and after deployment. The local/unit tests do not log in to WhatsApp.

@@ -1,16 +1,19 @@
 # syntax=docker/dockerfile:1
 # v0.6.0 source is pinned by commit, independent of a movable tag.
 FROM golang:1.26-bookworm AS bridge
+ENV GOMAXPROCS=2 GOMEMLIMIT=512MiB
 WORKDIR /src
 RUN git clone https://github.com/Sealjay/mcp-whatsapp.git . \
     && git checkout --detach 078ac8c5e3f8a6f32c6a5902e4859f86c853330f
 RUN go mod download \
-    && CGO_ENABLED=1 go build -trimpath -ldflags '-s -w -X main.Version=v0.6.0' \
+    && CGO_ENABLED=1 go build -p 1 -trimpath -ldflags '-s -w -X main.Version=v0.6.0' \
        -o /out/whatsapp-mcp ./cmd/whatsapp-mcp
 
 # Build from Debian's signed, security-maintained source package. All native
 # decoders remain available; no graphics, LLVM, device capture or remote URLs.
 FROM debian:bookworm-slim AS audio
+# Make the heavy compiles run one after another, even with BuildKit parallelism.
+COPY --from=bridge /out/whatsapp-mcp /tmp/bridge-built
 RUN sed -i 's/Types: deb$/Types: deb deb-src/' /etc/apt/sources.list.d/debian.sources \
     && apt-get update \
     && apt-get install -y --no-install-recommends build-essential dpkg-dev pkg-config nasm libopus-dev
