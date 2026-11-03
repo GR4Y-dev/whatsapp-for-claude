@@ -20,13 +20,20 @@ notify() {
   echo "$1"
   if [ -d "$OUTBOX" ]; then printf '%s\n' "$1" > "$OUTBOX/$(date +%s%N)-$NAME.txt"; fi
 }
-trap 'notify "❌ Updating $TITLE failed. Details: journalctl -u $NAME-update -n 50"' ERR
+ROLLBACK=""   # the version to go back to if installing a new one fails
+failed() {
+  # Back to the previous version, so the next update tries the new one again.
+  if [ -n "$ROLLBACK" ]; then git reset -q --hard "$ROLLBACK" || true; fi
+  notify "❌ Updating $TITLE failed; the next update will try again. Details: journalctl -u '$NAME-update*' -n 80"
+}
+trap failed ERR
 
 # What an update does for this project.
 apply() {
   docker compose build
   docker compose up -d
   docker image prune -f >/dev/null
+  docker builder prune -af >/dev/null 2>&1 || true   # build leftovers can fill the disk
 }
 
 case "${1:-}" in
@@ -74,6 +81,9 @@ esac
 
 exec 9>"$(git rev-parse --git-path update.lock)"
 flock -n 9 || { echo "An update is already running."; exit 0; }
+# One project at a time: their builds share the server's disk and memory.
+LOCKS="${LOCK_DIR:-/run/lock}"
+if [ -d "$LOCKS" ] && [ -w "$LOCKS" ]; then exec 8>>"$LOCKS/claude-updates.lock"; flock 8; fi
 
 git fetch -q origin main
 HERE="$(git rev-parse HEAD)"
@@ -113,7 +123,9 @@ case "$TESTS" in
 esac
 
 CHANGES="$(git log --format='• %s' "$HERE..$NEW" | head -5)"
+ROLLBACK="$HERE"
 git merge -q --ff-only "$NEW"
 apply
+ROLLBACK=""
 notify "✅ $TITLE updated:
 $CHANGES"

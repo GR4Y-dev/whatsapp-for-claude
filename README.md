@@ -157,6 +157,8 @@ You don't need to log in to the server for updates:
   [Telegram for Claude](https://github.com/GR4Y-dev/telegram-for-claude)'s call assistant is on
   the same server, send it `/update` (or ask Claude "update the server"). It updates this project
   too and texts you what changed.
+- **If an update fails** (for example, the disk is full), it goes back to the version it had
+  and tries again at the next update. Projects on the same server update one at a time.
 
 By hand, on the server: `cd /opt/whatsapp-for-claude && bash update.sh`. Your settings and the
 WhatsApp link are always kept.
