@@ -217,3 +217,9 @@ Not affiliated with WhatsApp, Meta, Anthropic or OpenAI.
 ## License
 
 [MIT](LICENSE)
+
+## Update efficiency
+
+Updates now reuse unchanged images, retain build cache, and leave other applications'
+Docker resources alone. The WhatsApp bridge includes a smaller audio-only ffmpeg build.
+See [performance notes](PERFORMANCE.md) for measurements, maintenance and rollback checks.

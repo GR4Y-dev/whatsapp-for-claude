@@ -1,0 +1,4 @@
+#!/bin/sh
+# Upstream uses ffmpeg solely to turn uploaded audio into an Opus voice message.
+# Place -vn before the output filename; preserve every argument without shell evaluation.
+exec /usr/local/libexec/ffmpeg-audio -vn "$@"
