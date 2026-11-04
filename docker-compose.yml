@@ -11,8 +11,8 @@ services:
   # The WhatsApp server itself (github.com/sealjay/mcp-whatsapp), built from its v0.6.0 release.
   # Only the gateway can reach it; it is never on the internet.
   whatsapp:
-    build: https://github.com/sealjay/mcp-whatsapp.git#v0.6.0
-    image: whatsapp-mcp:v0.6.0
+    build: ./bridge
+    image: whatsapp-mcp:v0.6.0-audio1
     container_name: whatsapp-mcp
     logging: *logging
     restart: unless-stopped

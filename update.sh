@@ -30,10 +30,7 @@ trap failed ERR
 
 # What an update does for this project.
 apply() {
-  docker compose build
-  docker compose up -d
-  docker image prune -f >/dev/null
-  docker builder prune -af >/dev/null 2>&1 || true   # build leftovers can fill the disk
+  python3 build_images.py
 }
 
 case "${1:-}" in
@@ -73,17 +70,25 @@ EOF
     systemctl daemon-reload
     echo "Automatic updates are off."
     exit 0 ;;
-  --now)
-    apply
-    notify "✅ $TITLE restarted on version $(git log -1 --format='%h (%cs)')."
-    exit 0 ;;
+  --now|"") ;;
+  *) echo "Unknown update option."; exit 2 ;;
 esac
 
-exec 9>"$(git rev-parse --git-path update.lock)"
-flock -n 9 || { echo "An update is already running."; exit 0; }
 # One project at a time: their builds share the server's disk and memory.
 LOCKS="${LOCK_DIR:-/run/lock}"
-if [ -d "$LOCKS" ] && [ -w "$LOCKS" ]; then exec 8>>"$LOCKS/claude-updates.lock"; flock 8; fi
+[ -d "$LOCKS" ] && [ -w "$LOCKS" ] || { echo "Shared update lock unavailable."; exit 1; }
+if [ "${CONNECTOR_UPDATE_LOCKED:-}" != 1 ]; then
+  exec python3 lock_updates.py "$LOCKS/claude-updates.lock" "$ROOT/update.sh" "$@"
+fi
+exec 9>"$(git rev-parse --git-path update.lock)"
+flock -n 9 || { echo "An update is already running."; exit 0; }
+git diff --quiet && git diff --cached --quiet || { echo "Local edits found; update stopped."; exit 1; }
+[ -z "$(git ls-files --others --exclude-standard)" ] || { echo "Untracked local files found; update stopped."; exit 1; }
+if [ "${1:-}" = --now ]; then
+  apply
+  notify "✅ $TITLE restarted on version $(git log -1 --format='%h (%cs)')."
+  exit 0
+fi
 
 git fetch -q origin main
 HERE="$(git rev-parse HEAD)"

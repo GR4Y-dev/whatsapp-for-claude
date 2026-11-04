@@ -28,6 +28,19 @@ jobs:
       - name: Gateway tests
         run: python tests/test_gateway.py
       - name: Security regression tests
-        run: python -m unittest discover -s tests -p test_security.py -v
+        run: |
+          python -m unittest discover -s tests -p test_security.py -v
+          python -m unittest discover -s tests -p test_build_images.py -v
       - name: Build the gateway image
         run: docker build -q gateway
+      - name: Build and test the smaller voice bridge
+        run: |
+          docker build -t bridge-test bridge
+          sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg
+          mkdir -m 777 /tmp/audio-smoke
+          for format in wav mp3 m4a flac ogg; do
+            ffmpeg -v error -f lavfi -i 'sine=frequency=440:duration=1' -y "/tmp/audio-smoke/in.$format"
+            docker run --rm --entrypoint ffmpeg -v /tmp/audio-smoke:/samples bridge-test -v error -i "/samples/in.$format" -c:a libopus -b:a 32k -vbr on -compression_level 10 -y "/samples/out-$format.ogg"
+            test "$(ffprobe -v error -select_streams a:0 -show_entries stream=codec_name -of csv=p=0 "/tmp/audio-smoke/out-$format.ogg")" = opus
+          done
+          docker image inspect bridge-test --format '{{.Size}}'
